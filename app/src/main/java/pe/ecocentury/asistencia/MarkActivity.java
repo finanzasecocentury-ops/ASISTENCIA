@@ -1,11 +1,14 @@
 package pe.ecocentury.asistencia;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.location.Location;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.text.Editable;
@@ -19,16 +22,24 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.io.File;
-import java.util.List;
+import java.time.Duration;
+import java.time.LocalTime;
 
-/** Pantalla para marcar entrada/salida con DNI + selfie. */
+/** Marcar entrada/salida con DNI + ubicación GPS + selfie. */
 public class MarkActivity extends Activity {
     private static final int REQ_CAMERA = 10;
+    private static final int REQ_LOCATION = 11;
 
     private EditText dni;
     private TextView info;
+
+    // Marcación en curso (se guarda por si Android cierra la pantalla al abrir la cámara)
     private String pendingDni;
     private long pendingTs;
+    private double pLat = Double.NaN, pLng = Double.NaN;
+    private float pAcc = -1;
+    private int pDist = -1;
+    private String pLoc, pSede;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -37,6 +48,12 @@ public class MarkActivity extends Activity {
         if (b != null) {
             pendingDni = b.getString("pendingDni");
             pendingTs = b.getLong("pendingTs");
+            pLat = b.getDouble("pLat", Double.NaN);
+            pLng = b.getDouble("pLng", Double.NaN);
+            pAcc = b.getFloat("pAcc", -1);
+            pDist = b.getInt("pDist", -1);
+            pLoc = b.getString("pLoc");
+            pSede = b.getString("pSede");
         }
         LinearLayout root = Ui.screen(this);
 
@@ -51,9 +68,9 @@ public class MarkActivity extends Activity {
         info.setGravity(Gravity.CENTER);
         Ui.add(root, info, 12);
 
-        Ui.add(root, Ui.button(this, "Tomar selfie y marcar", Ui.GREEN, v -> startMark()), 20);
-        Ui.add(root, Ui.text(this, "Se abrirá la cámara. Toma una foto de tu rostro para registrar la marcación. "
-                + "La app detecta sola si corresponde ENTRADA o SALIDA.", 14, Ui.MUTED), 16);
+        Ui.add(root, Ui.button(this, "Marcar (ubicación + selfie)", Ui.GREEN, v -> startMark()), 20);
+        Ui.add(root, Ui.text(this, "La app toma tu ubicación y luego abre la cámara para la selfie. "
+                + "Detecta sola si corresponde ENTRADA o SALIDA.", 14, Ui.MUTED), 16);
 
         dni.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int c, int d) { }
@@ -71,36 +88,131 @@ public class MarkActivity extends Activity {
             info.setText("DNI no registrado");
             return;
         }
-        String next = Calc.nextType(Db.get(this).marksOf(d, Calc.dayOf(System.currentTimeMillis())));
+        String next = Calc.nextTypeAndDay(Db.get(this).lastMark(d), System.currentTimeMillis())[0];
         info.setTextColor(Calc.IN.equals(next) ? Ui.GREEN : Ui.BLUE);
-        info.setText(w.name + "\nSe registrará: " + next);
+        String extra = "";
+        if (w.sede != null && !w.sede.isEmpty()) extra += "\nSede: " + w.sede;
+        if (w.shift != null && !w.shift.isEmpty() && todayInfoValid()) {
+            extra += "\nTurno: " + w.shift + (w.workday && w.start != null && !w.start.isEmpty() ? " (" + w.start + ")" : " · día libre");
+        }
+        info.setText(w.name + "\nSe registrará: " + next + extra);
     }
+
+    /** Los datos de turno descargados corresponden a hoy. */
+    private boolean todayInfoValid() {
+        return Calc.dayOf(System.currentTimeMillis()).equals(Settings.cloudDay(this));
+    }
+
+    // ---------- Paso 1: validar y pedir ubicación ----------
 
     private void startMark() {
         String d = dni.getText().toString().trim();
         Calc.Worker w = Db.get(this).worker(d);
         if (w == null) { Ui.toast(this, "DNI no registrado. Pide al administrador que te registre."); return; }
 
-        List<Calc.Mark> today = Db.get(this).marksOf(d, Calc.dayOf(System.currentTimeMillis()));
-        if (!today.isEmpty()) {
-            long diff = System.currentTimeMillis() - today.get(today.size() - 1).ts;
-            if (diff >= 0 && diff < 60_000) {
-                Ui.toast(this, "Ya marcaste hace menos de un minuto.");
+        Calc.Mark last = Db.get(this).lastMark(d);
+        if (last != null) {
+            long diff = System.currentTimeMillis() - last.ts;
+            if (diff >= 0 && diff < 60_000) { Ui.toast(this, "Ya marcaste hace menos de un minuto."); return; }
+        }
+        pendingDni = d;
+        pendingTs = System.currentTimeMillis();
+        resetLocation();
+
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+        } else {
+            locate(true);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int req, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(req, perms, res);
+        if (req != REQ_LOCATION || pendingDni == null) return;
+        boolean ok = false;
+        for (int r : res) if (r == PackageManager.PERMISSION_GRANTED) ok = true;
+        locate(ok);
+    }
+
+    private void resetLocation() {
+        pLat = Double.NaN; pLng = Double.NaN; pAcc = -1; pDist = -1; pLoc = null; pSede = null;
+    }
+
+    private void locate(boolean permitted) {
+        Calc.Worker w = Db.get(this).worker(pendingDni);
+        if (w == null) return;
+        Db.Sede sede = Db.get(this).sede(w.sede);
+        pSede = sede != null ? sede.name : w.sede;
+        boolean validate = sede != null && sede.validate;
+
+        if (!permitted) {
+            if (validate) { block("Para marcar en tu sede debes permitir el acceso a la ubicación."); return; }
+            evaluate(null, sede);
+            return;
+        }
+        if (!Geo.enabled(this)) {
+            if (validate) { block("Activa la ubicación (GPS) del celular e intenta de nuevo."); return; }
+            evaluate(null, sede);
+            return;
+        }
+        AlertDialog wait = new AlertDialog.Builder(this)
+                .setTitle("Obteniendo ubicación…")
+                .setMessage("Espera unos segundos. Si estás bajo techo, acércate a una ventana.")
+                .setCancelable(false)
+                .show();
+        Geo.get(this, 20_000, loc -> {
+            try { wait.dismiss(); } catch (Exception ignored) { }
+            if (isFinishing()) return;
+            evaluate(loc, sede);
+        });
+    }
+
+    private void evaluate(Location loc, Db.Sede sede) {
+        if (loc == null) {
+            pLoc = Geo.SIN_GPS;
+        } else {
+            pLat = loc.getLatitude();
+            pLng = loc.getLongitude();
+            pAcc = loc.getAccuracy();
+            if (Geo.isMock(loc)) {
+                pLoc = Geo.FALSA;
+            } else if (sede == null || sede.lat == null || sede.lng == null) {
+                pLoc = Geo.SIN_SEDE;
+            } else {
+                pDist = Geo.distance(pLat, pLng, sede.lat, sede.lng);
+                pLoc = pDist <= sede.radius ? Geo.DENTRO : Geo.FUERA;
+            }
+        }
+        if (sede != null && sede.validate) {
+            if (Geo.FALSA.equals(pLoc)) { block("Se detectó una ubicación falsa. Desactiva las apps de ubicación simulada."); return; }
+            if (Geo.SIN_GPS.equals(pLoc)) { block("No se pudo obtener tu ubicación. Sal a un lugar abierto e intenta de nuevo."); return; }
+            if (Geo.FUERA.equals(pLoc)) {
+                block("Estás a " + pDist + " m de la sede \"" + sede.name + "\". Debes estar a menos de "
+                        + sede.radius + " m para marcar.");
                 return;
             }
         }
+        openCamera();
+    }
 
+    private void block(String msg) {
+        pendingDni = null;
+        new AlertDialog.Builder(this).setTitle("No se puede marcar").setMessage(msg)
+                .setPositiveButton("Aceptar", null).show();
+    }
+
+    // ---------- Paso 2: selfie ----------
+
+    private void openCamera() {
         File tmp = PhotoProvider.tempFile(this);
         //noinspection ResultOfMethodCallIgnored
         tmp.delete();
-        pendingDni = d;
-        pendingTs = System.currentTimeMillis();
-
         Intent i = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
         i.putExtra(MediaStore.EXTRA_OUTPUT, PhotoProvider.tempUri());
         i.setClipData(ClipData.newRawUri("foto", PhotoProvider.tempUri()));
         i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        // Pedir cámara frontal (no todas las apps de cámara lo respetan)
         i.putExtra("android.intent.extras.CAMERA_FACING", 1);
         i.putExtra("android.intent.extras.LENS_FACING_FRONT", 1);
         i.putExtra("android.intent.extra.USE_FRONT_CAMERA", true);
@@ -124,13 +236,10 @@ public class MarkActivity extends Activity {
         }
         Bitmap photo = PhotoProvider.loadScaled(PhotoProvider.tempFile(this), 800);
         if (photo == null && data != null && data.getExtras() != null) {
-            Object o = data.getExtras().get("data"); // miniatura de respaldo
+            Object o = data.getExtras().get("data");
             if (o instanceof Bitmap) photo = (Bitmap) o;
         }
-        if (photo == null) {
-            Ui.toast(this, "No se pudo obtener la foto. Intenta de nuevo.");
-            return;
-        }
+        if (photo == null) { Ui.toast(this, "No se pudo obtener la foto. Intenta de nuevo."); return; }
         Calc.Worker w = Db.get(this).worker(d);
         if (w == null) { Ui.toast(this, "DNI no registrado"); return; }
 
@@ -140,15 +249,21 @@ public class MarkActivity extends Activity {
         //noinspection ResultOfMethodCallIgnored
         PhotoProvider.tempFile(this).delete();
 
-        String day = Calc.dayOf(ts);
-        String type = Calc.nextType(Db.get(this).marksOf(d, day));
-        Calc.Mark m = new Calc.Mark(d, w.name, type, ts, photoName);
+        String[] td = Calc.nextTypeAndDay(Db.get(this).lastMark(d), ts);
+        Calc.Mark m = new Calc.Mark(d, w.name, td[0], ts, photoName);
+        m.day = td[1];
+        if (!Double.isNaN(pLat)) { m.lat = pLat; m.lng = pLng; }
+        if (pAcc >= 0) m.acc = pAcc;
+        if (pDist >= 0) m.dist = pDist;
+        m.loc = pLoc;
+        m.sede = pSede;
         Db.get(this).addMark(m);
-        showConfirmation(m, photo);
+        showConfirmation(m, w, photo);
         dni.setText("");
+        Cloud.syncAsync(this, null);
     }
 
-    private void showConfirmation(Calc.Mark m, Bitmap photo) {
+    private void showConfirmation(Calc.Mark m, Calc.Worker w, Bitmap photo) {
         LinearLayout box = Ui.dialogBox(this);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
         ImageView iv = new ImageView(this);
@@ -160,16 +275,22 @@ public class MarkActivity extends Activity {
         t1.setGravity(Gravity.CENTER);
         Ui.add(box, t1, 8);
         String hour = Calc.toLocal(m.ts).toLocalTime().format(Calc.HMS);
-        TextView t2 = Ui.text(this, m.name + "\n" + Calc.showDay(m.day) + "  " + hour, 18, Ui.TEXT);
+        TextView t2 = Ui.text(this, m.name + "\n" + Calc.showDay(Calc.dayOf(m.ts)) + "  " + hour, 18, Ui.TEXT);
         t2.setGravity(Gravity.CENTER);
         Ui.add(box, t2, 4);
-        if (Calc.IN.equals(m.type) && Db.get(this).marksOf(m.dni, m.day).size() == 1) {
-            long late = Calc.lateMinutes(Calc.toLocal(m.ts).toLocalTime().withSecond(0).withNano(0),
-                    Settings.schedule(this));
+
+        long late = lateFor(m, w);
+        if (late >= 0) {
             TextView t3 = Ui.bold(this, late > 0 ? "Tardanza: " + late + " min" : "A tiempo", 18,
                     late > 0 ? Ui.ORANGE : Ui.GREEN);
             t3.setGravity(Gravity.CENTER);
             Ui.add(box, t3, 6);
+        }
+        String locTxt = locationText(m);
+        if (!locTxt.isEmpty()) {
+            TextView t4 = Ui.text(this, locTxt, 14, Geo.DENTRO.equals(m.loc) ? Ui.GREEN : Ui.MUTED);
+            t4.setGravity(Gravity.CENTER);
+            Ui.add(box, t4, 6);
         }
         new AlertDialog.Builder(this)
                 .setTitle("Marcación registrada")
@@ -178,10 +299,41 @@ public class MarkActivity extends Activity {
                 .show();
     }
 
+    /** Minutos de tardanza de una ENTRADA, o -1 si no aplica o no se sabe. */
+    private long lateFor(Calc.Mark m, Calc.Worker w) {
+        if (!Calc.IN.equals(m.type) || Db.get(this).marksOf(m.dni, m.day).size() != 1) return -1;
+        LocalTime t = Calc.toLocal(m.ts).toLocalTime().withSecond(0).withNano(0);
+        if (Settings.cloudOn(this)) {
+            if (!todayInfoValid() || !w.workday || w.start == null || w.start.isEmpty()) return -1;
+            LocalTime st = Settings.parseTime(w.start);
+            if (st == null) return -1;
+            long dif = Duration.between(st, t).toMinutes();
+            return dif > Math.max(0, w.tol) ? dif : 0;
+        }
+        return Calc.lateMinutes(t, Settings.schedule(this));
+    }
+
+    static String locationText(Calc.Mark m) {
+        if (m.loc == null) return "";
+        switch (m.loc) {
+            case Geo.DENTRO: return "Ubicación: dentro de " + m.sede + (m.dist != null ? " (" + m.dist + " m)" : "");
+            case Geo.FUERA: return "Ubicación: fuera de " + m.sede + (m.dist != null ? " (a " + m.dist + " m)" : "");
+            case Geo.SIN_GPS: return "Ubicación: no disponible";
+            case Geo.FALSA: return "Ubicación: posible ubicación falsa";
+            default: return m.lat != null ? "Ubicación registrada" : "";
+        }
+    }
+
     @Override
     protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         out.putString("pendingDni", pendingDni);
         out.putLong("pendingTs", pendingTs);
+        out.putDouble("pLat", pLat);
+        out.putDouble("pLng", pLng);
+        out.putFloat("pAcc", pAcc);
+        out.putInt("pDist", pDist);
+        out.putString("pLoc", pLoc);
+        out.putString("pSede", pSede);
     }
 }

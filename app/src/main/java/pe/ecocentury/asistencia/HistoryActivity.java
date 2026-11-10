@@ -28,8 +28,10 @@ public class HistoryActivity extends Activity {
             top.addView(n, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             top.addView(Ui.bold(this, m.type, 14, Calc.IN.equals(m.type) ? Ui.GREEN : Ui.BLUE));
             c.addView(top);
-            c.addView(Ui.text(this, Calc.showDay(m.day) + "  " + Calc.toLocal(m.ts).toLocalTime().format(Calc.HMS)
+            c.addView(Ui.text(this, Calc.showDay(Calc.dayOf(m.ts)) + "  " + Calc.toLocal(m.ts).toLocalTime().format(Calc.HMS)
                     + "   ·   DNI " + m.dni, 14, Ui.MUTED));
+            String loc = MarkActivity.locationText(m);
+            if (!loc.isEmpty()) c.addView(Ui.text(this, loc, 13, Geo.DENTRO.equals(m.loc) ? Ui.GREEN : Ui.ORANGE));
             c.setOnClickListener(v -> showPhoto(m));
             Ui.add(root, c, 8);
         }

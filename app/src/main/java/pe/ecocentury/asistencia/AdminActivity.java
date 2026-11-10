@@ -41,6 +41,82 @@ public class AdminActivity extends Activity {
         Ui.add(root, Ui.button(this, "Historial de marcaciones", Ui.GRAY,
                 v -> startActivity(new Intent(this, HistoryActivity.class))), 12);
         Ui.add(root, Ui.button(this, "Horario y PIN", Ui.GRAY, v -> settingsDialog()), 12);
+        Ui.add(root, Ui.button(this, "Conexión a la nube (Google Sheets)", Ui.ORANGE, v -> cloudDialog()), 12);
+        Ui.add(root, Ui.button(this, "Sincronizar ahora", Ui.ORANGE, v -> syncNow()), 12);
+        cloudInfo = Ui.text(this, "", 14, Ui.MUTED);
+        Ui.add(root, cloudInfo, 16);
+    }
+
+    private TextView cloudInfo;
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshCloudInfo();
+    }
+
+    private void refreshCloudInfo() {
+        if (!Settings.cloudOn(this)) {
+            cloudInfo.setText("Nube: no configurada. Los datos solo quedan en este celular.");
+            return;
+        }
+        String last = Settings.lastSync(this);
+        cloudInfo.setText("Nube: configurada\nÚltima sincronización: " + (last.isEmpty() ? "nunca" : last)
+                + "\nMarcaciones por enviar: " + Db.get(this).pendingCount()
+                + "\nEquipo: " + Settings.deviceName(this));
+    }
+
+    // ---------- Nube ----------
+
+    private void syncNow() {
+        if (!Settings.cloudOn(this)) { Ui.toast(this, "Primero configura la conexión a la nube."); return; }
+        Ui.toast(this, "Sincronizando…");
+        Cloud.async(() -> Cloud.sync(this), (msg, err) -> {
+            if (isFinishing()) return;
+            Ui.toast(this, err != null ? "No se pudo sincronizar: " + err.getMessage() : "Sincronizado: " + msg);
+            refreshCloudInfo();
+        });
+    }
+
+    private void cloudDialog() {
+        LinearLayout box = Ui.dialogBox(this);
+        Ui.add(box, Ui.text(this, "Pega la URL de la aplicación web de Google (termina en /exec) "
+                + "y la clave que pusiste en el script.", 14, Ui.MUTED), 0);
+        EditText url = field(box, "URL", Settings.cloudUrl(this),
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        url.setSingleLine(false);
+        url.setMaxLines(4);
+        EditText key = field(box, "Clave", Settings.cloudKey(this),
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+
+        AlertDialog.Builder d = new AlertDialog.Builder(this)
+                .setTitle("Conexión a la nube")
+                .setView(wrap(box))
+                .setPositiveButton("Probar y guardar", (dlg, w) -> {
+                    String u = url.getText().toString().trim();
+                    String k = key.getText().toString();
+                    if (!u.startsWith("https://")) { Ui.toast(this, "La URL debe empezar con https://"); return; }
+                    Ui.toast(this, "Probando conexión…");
+                    Cloud.async(() -> Cloud.test(this, u, k), (n, err) -> {
+                        if (isFinishing()) return;
+                        if (err != null) {
+                            Ui.toast(this, "No se pudo conectar: " + err.getMessage());
+                            return;
+                        }
+                        Settings.saveCloud(this, u, k);
+                        Ui.toast(this, "Conectado. " + n + " trabajador(es) descargado(s).");
+                        syncNow();
+                    });
+                })
+                .setNegativeButton("Cancelar", null);
+        if (Settings.cloudOn(this)) {
+            d.setNeutralButton("Desconectar", (dlg, w) -> {
+                Settings.saveCloud(this, "", "");
+                Ui.toast(this, "Nube desconectada. Los datos quedan solo en este celular.");
+                refreshCloudInfo();
+            });
+        }
+        d.show();
     }
 
     // ---------- Exportar ----------
@@ -114,6 +190,11 @@ public class AdminActivity extends Activity {
     private void settingsDialog() {
         Calc.Schedule s = Settings.schedule(this);
         LinearLayout box = Ui.dialogBox(this);
+        if (Settings.cloudOn(this)) {
+            Ui.add(box, Ui.bold(this, "Con la nube activa, los horarios se manejan en la hoja \"Turnos\" de Google Sheets "
+                    + "y este horario solo se usa sin conexión. El PIN sí se guarda aquí.",
+                    14, Ui.ORANGE), 0);
+        }
         EditText start = field(box, "Hora de entrada (HH:mm)", Calc.fmtTime(s.start), InputType.TYPE_CLASS_DATETIME | InputType.TYPE_DATETIME_VARIATION_TIME);
         EditText end = field(box, "Hora de salida (HH:mm)", Calc.fmtTime(s.end), InputType.TYPE_CLASS_DATETIME | InputType.TYPE_DATETIME_VARIATION_TIME);
         EditText tol = field(box, "Tolerancia (minutos)", String.valueOf(s.tolerance), InputType.TYPE_CLASS_NUMBER);

@@ -15,7 +15,7 @@ import java.util.Locale;
 
 public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private TextView clock, date, hint;
+    private TextView clock, date, hint, cloud;
     private static final DateTimeFormatter DATE_LONG =
             DateTimeFormatter.ofPattern("EEEE d 'de' MMMM 'de' yyyy", new Locale("es", "PE"));
 
@@ -52,25 +52,55 @@ public class MainActivity extends Activity {
 
         Ui.add(root, Ui.button(this, "Marcar asistencia", Ui.GREEN,
                 v -> startActivity(new Intent(this, MarkActivity.class))), 24);
-        Ui.add(root, Ui.button(this, "Resumen de hoy", Ui.BLUE,
-                v -> startActivity(new Intent(this, SummaryActivity.class))), 12);
+        Ui.add(root, Ui.button(this, "Mi espacio (mis marcas y solicitudes)", Ui.BLUE,
+                v -> startActivity(new Intent(this, MySpaceActivity.class))), 12);
+        Ui.add(root, Ui.button(this, "Resumen del día (supervisor)", Ui.GRAY,
+                v -> Ui.askPin(this, () -> startActivity(new Intent(this, SummaryActivity.class)))), 12);
         Ui.add(root, Ui.button(this, "Administración", Ui.GRAY,
                 v -> Ui.askPin(this, () -> startActivity(new Intent(this, AdminActivity.class)))), 12);
 
         hint = Ui.text(this, "", 14, Ui.ORANGE);
         hint.setGravity(Gravity.CENTER);
         Ui.add(root, hint, 20);
+
+        cloud = Ui.text(this, "", 13, Ui.MUTED);
+        cloud.setGravity(Gravity.CENTER);
+        Ui.add(root, cloud, 12);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         handler.post(tick);
+        refreshHint();
+        if (Settings.cloudOn(this)) {
+            cloud.setText("Nube: sincronizando…");
+            Cloud.syncAsync(this, (msg, err) -> {
+                if (isFinishing()) return;
+                refreshHint();
+                int pend = Db.get(this).pendingCount();
+                if (err != null) {
+                    cloud.setText("Nube: no se pudo sincronizar (" + err.getMessage() + ")"
+                            + (pend > 0 ? "\n" + pend + " marcación(es) por enviar. Se enviarán cuando haya internet." : ""));
+                } else {
+                    cloud.setText("Nube: conectado · " + msg + " · " + Settings.lastSync(this));
+                }
+            });
+        } else {
+            cloud.setText("Modo sin nube: los datos quedan en este celular.");
+        }
+    }
+
+    private void refreshHint() {
         boolean noWorkers = Db.get(this).workers().isEmpty();
-        hint.setText(noWorkers
-                ? "Primero registra a los trabajadores en Administración."
-                  + ("1234".equals(Settings.pin(this)) ? "\nPIN inicial: 1234" : "")
-                : "");
+        String h = "";
+        if (noWorkers) {
+            h = Settings.cloudOn(this)
+                    ? "No hay trabajadores. Regístralos en la hoja \"Trabajadores\" de Google Sheets."
+                    : "Primero registra a los trabajadores en Administración."
+                      + ("1234".equals(Settings.pin(this)) ? "\nPIN inicial: 1234" : "");
+        }
+        hint.setText(h);
     }
 
     @Override

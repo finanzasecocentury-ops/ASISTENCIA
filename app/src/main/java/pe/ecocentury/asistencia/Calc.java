@@ -33,6 +33,10 @@ public final class Calc {
     public static final class Worker {
         public final String dni;
         public final String name;
+        /** Datos que llegan de la nube (pueden ser null en modo sin nube). */
+        public String sede, shift, start;
+        public int tol = -1;
+        public boolean workday = true;
         public Worker(String dni, String name) { this.dni = dni; this.name = name; }
     }
 
@@ -40,6 +44,11 @@ public final class Calc {
         public long id;
         public String dni, name, type, day, photo;
         public long ts;
+        /** Ubicación: loc = DENTRO, FUERA, SIN GPS, FALSA o SIN SEDE. */
+        public Double lat, lng;
+        public Float acc;
+        public Integer dist;
+        public String loc, sede;
         public Mark() {}
         public Mark(String dni, String name, String type, long ts, String photo) {
             this.dni = dni; this.name = name; this.type = type; this.ts = ts; this.photo = photo;
@@ -88,6 +97,20 @@ public final class Calc {
         return IN.equals(marksSortedAsc.get(marksSortedAsc.size() - 1).type) ? OUT : IN;
     }
 
+    /** Horas máximas que puede durar una jornada abierta para que la siguiente marca sea SALIDA. */
+    public static final long MAX_SHIFT_MS = 16L * 60 * 60 * 1000;
+
+    /**
+     * Decide tipo y día de jornada de una nueva marca a partir de la última marca del trabajador.
+     * Devuelve {tipo, día}. Si hay una ENTRADA abierta de menos de 16 h, es SALIDA de esa jornada.
+     */
+    public static String[] nextTypeAndDay(Mark last, long now) {
+        if (last != null && IN.equals(last.type) && now - last.ts >= 0 && now - last.ts < MAX_SHIFT_MS) {
+            return new String[]{OUT, last.day};
+        }
+        return new String[]{IN, dayOf(now)};
+    }
+
     /** Minutos de tardanza: se cuentan desde la hora de entrada si se supera la tolerancia. */
     public static long lateMinutes(LocalTime in, Schedule s) {
         if (in == null) return 0;
@@ -106,8 +129,9 @@ public final class Calc {
                 r.out = t;
             }
         }
-        if (r.in != null && r.out != null && !r.out.isBefore(r.in)) {
+        if (r.in != null && r.out != null) {
             long raw = Duration.between(r.in, r.out).toMinutes();
+            if (raw < 0) raw += 24 * 60; // turno que cruza medianoche
             r.workedMin = Math.max(0, raw - s.breakMin);
         }
         r.lateMin = lateMinutes(r.in, s);

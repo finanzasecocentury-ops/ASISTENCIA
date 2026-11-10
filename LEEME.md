@@ -2,20 +2,29 @@
 
 App de control de asistencia que funciona sin internet. Cada trabajador marca su entrada y su salida con su DNI y una selfie, y todos los datos se guardan en el celular.
 
-## Funciones
+## Funciones (versión 2.0)
 
-- **Marcar asistencia:** el trabajador ingresa su DNI y toma una selfie. La app decide sola si corresponde ENTRADA o SALIDA.
-- **Resumen del día:** muestra quién asistió, quién llegó tarde, quién faltó y quién está pendiente. También se pueden revisar días anteriores.
-- **Administración** (protegida con PIN; el PIN inicial es **1234**):
-  - **Trabajadores:** agregar, editar y eliminar.
-  - **Exportar a Excel:** genera un archivo por rango de fechas con 4 hojas: Resumen diario, Totales, Marcaciones y Parámetros. Luego se puede compartir por WhatsApp o correo.
-  - **Historial de marcaciones:** al tocar una marcación se ve la foto.
-  - **Horario y PIN:** hora de entrada y de salida, tolerancia, minutos de refrigerio que se descuentan, si el sábado es laborable y cambio de PIN.
+**En la app:**
 
-**Cálculos:**
+- **Marcar asistencia:** con DNI, **ubicación GPS** y **selfie**. Funciona sin internet. Si la sede lo exige, valida que la persona esté dentro del radio de su sede y bloquea las ubicaciones falsas.
+- **Turnos nocturnos:** la salida de un turno que cruza la medianoche se registra en la jornada correcta.
+- **Mi espacio:** el trabajador ve sus marcas de los últimos 31 días y envía solicitudes de permiso, vacaciones, justificación, horas extra, cambio de turno o corrección de marca.
+- **Resumen del día (supervisor):** muestra, por sede, quién está trabajando, las tardanzas, las faltas y las alertas de ubicación.
+- **Administración** (protegida con PIN; el inicial es **1234**):
+  - conexión a la nube
+  - trabajadores
+  - historial con fotos y ubicación
+  - exportar a Excel
+  - horario cuando no hay conexión
 
-- **Tardanza:** son los minutos después de la hora de entrada, siempre que se pase la tolerancia.
-- **Horas trabajadas:** se cuentan desde la primera entrada hasta la última salida del día, menos el refrigerio.
+**En Google Sheets:**
+
+- **Configuración:** sedes, turnos (fijos, rotativos y nocturnos), feriados.
+- **Gestión:** aprobación de solicitudes y correcciones con auditoría.
+- **Panel en tiempo real:** quién está trabajando en cada sede.
+- **Reportes:** resumen diario, totales, por sede, horas extra al 25% y al 35%, alertas de ubicación y Registro SUNAFIL.
+
+La guía completa está en `google-sheets/GUIA-NUBE.md`.
 
 Requiere Android 8.0 o superior.
 

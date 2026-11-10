@@ -22,6 +22,28 @@ public class WorkersActivity extends Activity {
         setTitle("Trabajadores");
         LinearLayout root = Ui.screen(this);
 
+        if (Settings.cloudOn(this)) {
+            LinearLayout info = (LinearLayout) Ui.card(this);
+            info.addView(Ui.bold(this, "Trabajadores en Google Sheets", 17, Ui.TEXT));
+            Ui.add(info, Ui.text(this, "Con la nube activa, los trabajadores se agregan, editan o desactivan "
+                    + "en la hoja \"Trabajadores\" de Google Sheets y llegan solos a todos los celulares.", 14, Ui.MUTED), 4);
+            Ui.add(info, Ui.button(this, "Actualizar desde la nube", Ui.ORANGE, v -> {
+                Ui.toast(this, "Actualizando…");
+                Cloud.async(() -> Cloud.sync(this), (msg, err) -> {
+                    if (isFinishing()) return;
+                    if (err != null) Ui.toast(this, "No se pudo actualizar: " + err.getMessage());
+                    load();
+                });
+            }), 10);
+            Ui.add(root, info, 4);
+            count = Ui.text(this, "", 14, Ui.MUTED);
+            Ui.add(root, count, 16);
+            list = Ui.vbox(this);
+            Ui.add(root, list, 4);
+            load();
+            return;
+        }
+
         LinearLayout form = (LinearLayout) Ui.card(this);
         form.addView(Ui.bold(this, "Nuevo trabajador", 17, Ui.TEXT));
         EditText dni = Ui.edit(this, "DNI", InputType.TYPE_CLASS_NUMBER);
@@ -59,8 +81,11 @@ public class WorkersActivity extends Activity {
         for (Calc.Worker w : ws) {
             LinearLayout c = (LinearLayout) Ui.card(this);
             c.addView(Ui.bold(this, w.name, 17, Ui.TEXT));
-            c.addView(Ui.text(this, "DNI " + w.dni, 14, Ui.MUTED));
-            c.setOnClickListener(v -> edit(w));
+            String extra = "";
+            if (w.sede != null && !w.sede.isEmpty()) extra += "   ·   " + w.sede;
+            if (w.shift != null && !w.shift.isEmpty()) extra += "   ·   Turno " + w.shift;
+            c.addView(Ui.text(this, "DNI " + w.dni + extra, 14, Ui.MUTED));
+            if (!Settings.cloudOn(this)) c.setOnClickListener(v -> edit(w));
             Ui.add(list, c, 8);
         }
     }

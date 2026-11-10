@@ -10,13 +10,27 @@ android {
         applicationId 'pe.ecocentury.asistencia'
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode 3
+        versionName '2.0'
+    }
+
+    // Firma fija: permite actualizar la app sin desinstalarla
+    signingConfigs {
+        ecocentury {
+            storeFile file('ecocentury.keystore')
+            storePassword 'ecocentury2026'
+            keyAlias 'ecocentury'
+            keyPassword 'ecocentury2026'
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.ecocentury
+        }
         release {
             minifyEnabled false
+            signingConfig signingConfigs.ecocentury
         }
     }
 

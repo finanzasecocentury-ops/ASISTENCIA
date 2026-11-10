@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -26,6 +32,8 @@
         <activity android:name=".WorkersActivity" android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity android:name=".HistoryActivity" android:exported="false" />
+        <activity android:name=".MySpaceActivity" android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
 
         <provider
             android:name=".PhotoProvider"
