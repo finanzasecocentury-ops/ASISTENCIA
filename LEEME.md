@@ -2,29 +2,21 @@
 
 App de control de asistencia que funciona sin internet. Cada trabajador marca su entrada y su salida con su DNI y una selfie, y todos los datos se guardan en el celular.
 
-## Funciones (versión 2.0)
+## Versión 3.0
 
-**En la app:**
+- **Marcar asistencia:** con documento (DNI o CE), selfie y GPS. Funciona sin internet y detecta GPS falso.
+- **Iniciar sesión:** cada persona entra con su documento y su contraseña. Los menús cambian según el rol: Trabajador, Administrador de área o Administrador general.
+- **Administración desde la app o la web:**
+  - personal y roles
+  - solicitudes (con adjuntos y quién aprobó)
+  - programación de turnos
+  - correcciones
+  - reportes en Excel
+  - áreas, cargos, sedes, turnos y feriados
+- **Versión web** para iPhone y Android: la misma URL `/exec`, con las mismas funciones.
 
-- **Marcar asistencia:** con DNI, **ubicación GPS** y **selfie**. Funciona sin internet. Si la sede lo exige, valida que la persona esté dentro del radio de su sede y bloquea las ubicaciones falsas.
-- **Turnos nocturnos:** la salida de un turno que cruza la medianoche se registra en la jornada correcta.
-- **Mi espacio:** el trabajador ve sus marcas de los últimos 31 días y envía solicitudes de permiso, vacaciones, justificación, horas extra, cambio de turno o corrección de marca.
-- **Resumen del día (supervisor):** muestra, por sede, quién está trabajando, las tardanzas, las faltas y las alertas de ubicación.
-- **Administración** (protegida con PIN; el inicial es **1234**):
-  - conexión a la nube
-  - trabajadores
-  - historial con fotos y ubicación
-  - exportar a Excel
-  - horario cuando no hay conexión
-
-**En Google Sheets:**
-
-- **Configuración:** sedes, turnos (fijos, rotativos y nocturnos), feriados.
-- **Gestión:** aprobación de solicitudes y correcciones con auditoría.
-- **Panel en tiempo real:** quién está trabajando en cada sede.
-- **Reportes:** resumen diario, totales, por sede, horas extra al 25% y al 35%, alertas de ubicación y Registro SUNAFIL.
-
-La guía completa está en `google-sheets/GUIA-NUBE.md`.
+Instalación, actualización y uso: **`google-sheets/GUIA-V3.md`**.
+El script de la hoja es `google-sheets/Codigo.gs`. Se genera con `python3 google-sheets/construir.py` a partir de `google-sheets/src/` y `Web.html`.
 
 Requiere Android 8.0 o superior.
 

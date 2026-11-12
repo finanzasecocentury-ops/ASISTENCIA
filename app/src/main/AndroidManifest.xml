@@ -19,20 +19,19 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".SetupActivity" android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
         <activity android:name=".MarkActivity" android:exported="false"
             android:windowSoftInputMode="stateVisible|adjustResize" />
-        <activity android:name=".SummaryActivity" android:exported="false" />
-        <activity android:name=".AdminActivity" android:exported="false" />
-        <activity android:name=".WorkersActivity" android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".HistoryActivity" android:exported="false" />
-        <activity android:name=".MySpaceActivity" android:exported="false"
+        <activity android:name=".PortalActivity" android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize" />
 
         <provider
