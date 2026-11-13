@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.util.Base64;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -34,6 +35,21 @@ import java.io.OutputStream;
 public class PortalActivity extends Activity {
     static final String EXTRA_MESSAGE = "mensaje";
     private static final int REQ_FILE = 30, REQ_SAVE = 31, REQ_LOCATION = 32;
+
+    /**
+     * Cierra automáticamente el aviso gris de Google ("Un usuario de Google Apps Script creó esta aplicación"),
+     * igual que si el usuario tocara su X. Busca el aviso por su texto, pulsa su botón de cerrar y lo oculta.
+     */
+    private static final String CERRAR_AVISO_GOOGLE =
+            "(function(){function f(){var h=false,a=document.querySelectorAll('body *');"
+            + "for(var i=0;i<a.length;i++){var e=a[i];if(e.tagName==='IFRAME'||e.querySelector('iframe'))continue;"
+            + "var t=e.textContent||'';if(t.length<400&&/Google Apps Script/.test(t)){var n=e;"
+            + "while(n.parentElement&&n.parentElement!==document.body&&!n.parentElement.querySelector('iframe'))n=n.parentElement;"
+            + "var b=n.querySelectorAll('[role=button],button,[aria-label]');for(var j=0;j<b.length;j++){"
+            + "var l=(b[j].getAttribute('aria-label')||'')+' '+(b[j].textContent||'');"
+            + "if(/cerrar|close|descartar|dismiss/i.test(l)){try{b[j].click();}catch(x){}}}"
+            + "n.style.display='none';h=true;}}return h;}"
+            + "var k=0,id=setInterval(function(){if(f()||++k>24)clearInterval(id);},250);})();";
 
     private WebView web;
     private ProgressBar loading;
@@ -64,9 +80,18 @@ public class PortalActivity extends Activity {
         s.setAllowFileAccess(false);
         s.setMediaPlaybackRequiresUserGesture(true);
         web.setBackgroundColor(Color.parseColor("#F3F6F3"));
+        // La página de Google Apps Script se muestra dentro de un marco de otro dominio: necesita cookies de terceros
+        CookieManager cm = CookieManager.getInstance();
+        cm.setAcceptCookie(true);
+        cm.setAcceptThirdPartyCookies(web, true);
+        s.setJavaScriptCanOpenWindowsAutomatically(false);
+        s.setSupportMultipleWindows(false);
         web.addJavascriptInterface(new Bridge(), "AndroidApp");
         web.setWebViewClient(new WebViewClient() {
-            @Override public void onPageFinished(WebView v, String url) { loading.setVisibility(View.GONE); }
+            @Override public void onPageFinished(WebView v, String url) {
+                loading.setVisibility(View.GONE);
+                v.evaluateJavascript(CERRAR_AVISO_GOOGLE, null);
+            }
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
